@@ -30,8 +30,8 @@ with open(DEPLOY_SCRIPTS_FILE) as fh:
     DEPLOY_SCRIPTS = json.load(fh)
 
 
-def deploy_application(script_name):
-    subprocess.run(script_name)
+def deploy_application(script_name, *args):
+    subprocess.run([script_name, *args])
 
 
 AppNames = Enum("AppNames", [(k, k) for k in DEPLOY_SCRIPTS.keys()], type=str)
@@ -65,12 +65,22 @@ async def receive_payload(
     x_github_event: str = Header(...),
 ):
 
-    if x_github_event == "push":
+    if x_github_event == "create":
         payload = await request.json()
+        if payload.get("ref_type") == "tag":
+            tag_name = payload.get("ref")
+            script_name = DEPLOY_SCRIPTS[app_name]
+            background_tasks.add_task(deploy_application, script_name, tag_name)
+            return {"message": f"Deployment started for tag {tag_name}"}
 
+    elif x_github_event == "push":
+        payload = await request.json()
         default_branch = payload["repository"]["default_branch"]
         # check if event is referencing the default branch
-        if "ref" in payload and payload["ref"] == f"refs/heads/{default_branch}":
+        if (
+            "ref" in payload
+            and payload["ref"] == f"refs/heads/{default_branch}"
+        ):
             # check if app_name is declared in config
             script_name = DEPLOY_SCRIPTS[app_name]
             background_tasks.add_task(deploy_application, script_name)
